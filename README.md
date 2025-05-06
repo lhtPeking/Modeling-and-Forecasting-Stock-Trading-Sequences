@@ -1,0 +1,1 @@
+The stock prediction project from python class.
