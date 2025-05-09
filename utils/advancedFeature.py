@@ -56,12 +56,12 @@ class advancedFeature:
     
     @staticmethod
     def compute_volume_price_corr(path):
-        df = extendedFeature.load_data(path)
+        df = advancedFeature.load_data(path)
         return df[['Close', 'Volume']].corr().iloc[0, 1]
 
     @staticmethod
     def compute_overnight_jump_rate(path, threshold=0.01):
-        df = extendedFeature.load_data(path)
+        df = advancedFeature.load_data(path)
         df['PrevClose'] = df['Close'].shift(1)
         df['OvernightReturn'] = (df['Open'] - df['PrevClose']) / df['PrevClose']
         jump_rate = (df['OvernightReturn'].abs() > threshold).mean()
@@ -69,14 +69,14 @@ class advancedFeature:
 
     @staticmethod
     def compute_weekday_return_std(path):
-        df = extendedFeature.load_data(path)
+        df = advancedFeature.load_data(path)
         df['Return'] = df['Close'].pct_change()
         df['Weekday'] = pd.to_datetime(df['Date']).dt.weekday
         return df.groupby('Weekday')['Return'].std().mean()
 
     @staticmethod
     def compute_monthly_volatility_autocorr(path):
-        df = extendedFeature.load_data(path)
+        df = advancedFeature.load_data(path)
         df['Return'] = df['Close'].pct_change()
         df['Month'] = pd.to_datetime(df['Date']).dt.to_period('M')
         monthly_vol = df.groupby('Month')['Return'].std()
