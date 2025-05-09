@@ -53,6 +53,34 @@ class advancedFeature:
         penetration = ((df['Close'] > upper) | (df['Close'] < lower)).sum()
         total = len(df)
         return penetration / total
+    
+    @staticmethod
+    def compute_volume_price_corr(path):
+        df = extendedFeature.load_data(path)
+        return df[['Close', 'Volume']].corr().iloc[0, 1]
+
+    @staticmethod
+    def compute_overnight_jump_rate(path, threshold=0.01):
+        df = extendedFeature.load_data(path)
+        df['PrevClose'] = df['Close'].shift(1)
+        df['OvernightReturn'] = (df['Open'] - df['PrevClose']) / df['PrevClose']
+        jump_rate = (df['OvernightReturn'].abs() > threshold).mean()
+        return jump_rate
+
+    @staticmethod
+    def compute_weekday_return_std(path):
+        df = extendedFeature.load_data(path)
+        df['Return'] = df['Close'].pct_change()
+        df['Weekday'] = pd.to_datetime(df['Date']).dt.weekday
+        return df.groupby('Weekday')['Return'].std().mean()
+
+    @staticmethod
+    def compute_monthly_volatility_autocorr(path):
+        df = extendedFeature.load_data(path)
+        df['Return'] = df['Close'].pct_change()
+        df['Month'] = pd.to_datetime(df['Date']).dt.to_period('M')
+        monthly_vol = df.groupby('Month')['Return'].std()
+        return monthly_vol.autocorr()
 
     @staticmethod
     def integrate_advanced_features(path):
@@ -61,7 +89,11 @@ class advancedFeature:
             'Hurst': advancedFeature.compute_Hurst(path),
             'MACD_mean': advancedFeature.compute_MACD_mean(path),
             'RSI14_mean': advancedFeature.compute_RSI14_mean(path),
-            'BollingerPenRate': advancedFeature.compute_Bollinger_penetration_rate(path)
+            'BollingerPenRate': advancedFeature.compute_Bollinger_penetration_rate(path),
+            'VolumePriceCorr': advancedFeature.compute_volume_price_corr(path),
+            'OvernightJumpRate': advancedFeature.compute_overnight_jump_rate(path),
+            'WeekdayReturnStd': advancedFeature.compute_weekday_return_std(path),
+            'MonthlyVolAutocorr': advancedFeature.compute_monthly_volatility_autocorr(path)
         }
         stock_name = os.path.basename(path).split('_')[0]
         return pd.DataFrame(features, index=[stock_name])
