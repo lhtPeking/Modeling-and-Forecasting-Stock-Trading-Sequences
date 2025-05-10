@@ -81,4 +81,75 @@ class dual_ma_strategy(BaseStrategy):
         plt.tight_layout()
         plt.show()
         
+class macd_strategy(BaseStrategy):
+    def __init__(self, df):
+        super().__init__(df)
     
+    def strategy(self):
+        df = self.df
+        df['Date'] = pd.to_datetime(df['Date'])
+        df.set_index('Date', inplace=True)
+        df.sort_index(inplace=True)
+
+        # MACD核心计算
+        df['EMA_12'] = df['Close'].ewm(span=12).mean()
+        df['EMA_26'] = df['Close'].ewm(span=26).mean()
+        df['DIF'] = df['EMA_12'] - df['EMA_26']
+        df['DEA'] = df['DIF'].ewm(span=9).mean()
+        df['Signal'] = np.where(df['DIF'] > df['DEA'], 1, -1)
+
+        # 收益计算
+        df['MarketReturn'] = df['Close'].pct_change()
+        df['StrategyReturn'] = df['MarketReturn'] * df['Signal'].shift(1)
+        df['CumulativeStrategy'] = (1 + df['StrategyReturn'].fillna(0)).cumprod()
+        return df
+
+class bollinger_strategy(BaseStrategy):
+    def __init__(self, df):
+        super().__init__(df)
+    
+    def strategy(self):
+        df = self.df
+        df['Date'] = pd.to_datetime(df['Date'])
+        df.set_index('Date', inplace=True)
+        df.sort_index(inplace=True)
+
+        df['MA_20'] = df['Close'].rolling(20).mean()
+        df['STD_20'] = df['Close'].rolling(20).std()
+        df['Upper'] = df['MA_20'] + 2 * df['STD_20']
+        df['Lower'] = df['MA_20'] - 2 * df['STD_20']
+
+        df['Signal'] = np.where(df['Close'] < df['Lower'], 1,
+                          np.where(df['Close'] > df['Upper'], -1, 0))
+
+        df['MarketReturn'] = df['Close'].pct_change()
+        df['StrategyReturn'] = df['MarketReturn'] * df['Signal'].shift(1)
+        df['CumulativeStrategy'] = (1 + df['StrategyReturn'].fillna(0)).cumprod()
+        return df
+
+class rsi_strategy(BaseStrategy):
+    def __init__(self, df):
+        super().__init__(df)
+    
+    def strategy(self):
+        df = self.df
+        df['Date'] = pd.to_datetime(df['Date'])
+        df.set_index('Date', inplace=True)
+        df.sort_index(inplace=True)
+
+        delta = df['Close'].diff()
+        gain = delta.where(delta > 0, 0)
+        loss = -delta.where(delta < 0, 0)
+
+        avg_gain = gain.rolling(14).mean()
+        avg_loss = loss.rolling(14).mean()
+        rs = avg_gain / avg_loss
+        df['RSI'] = 100 - (100 / (1 + rs))
+
+        df['Signal'] = np.where(df['RSI'] < 30, 1,
+                          np.where(df['RSI'] > 70, -1, 0))
+
+        df['MarketReturn'] = df['Close'].pct_change()
+        df['StrategyReturn'] = df['MarketReturn'] * df['Signal'].shift(1)
+        df['CumulativeStrategy'] = (1 + df['StrategyReturn'].fillna(0)).cumprod()
+        return df
