@@ -153,3 +153,73 @@ class rsi_strategy(BaseStrategy):
         df['StrategyReturn'] = df['MarketReturn'] * df['Signal'].shift(1)
         df['CumulativeStrategy'] = (1 + df['StrategyReturn'].fillna(0)).cumprod()
         return df
+
+class pair_trading_strategy(BaseStrategy):
+    def __init__(self, df):
+        super().__init__(df)
+    
+    def strategy(self):
+        df = self.df.copy()
+        df['Date'] = pd.to_datetime(df['Date'])
+        df.set_index('Date', inplace=True)
+        df.sort_index(inplace=True)
+
+        # 计算价差与z-score
+        df['Spread'] = df['StockA'] - df['StockB']
+        df['Zscore'] = (df['Spread'] - df['Spread'].rolling(30).mean()) / df['Spread'].rolling(30).std()
+
+        # 策略信号
+        df['Signal'] = np.where(df['Zscore'] < -1.5, 1, np.where(df['Zscore'] > 1.5, -1, 0))
+
+        # 简化收益计算（实际应分别计算StockA和StockB的对冲收益）
+        df['MarketReturn'] = df['StockA'].pct_change()
+        df['StrategyReturn'] = df['MarketReturn'] * df['Signal'].shift(1)
+        df['CumulativeStrategy'] = (1 + df['StrategyReturn'].fillna(0)).cumprod()
+        return df
+
+class momentum_topN_strategy(BaseStrategy):
+    def __init__(self, df, lookback=20, top_n=3):
+        super().__init__(df)
+        self.lookback = lookback
+        self.top_n = top_n
+
+    def strategy(self):
+        df = self.df.copy()
+        df['Momentum'] = df.groupby(level=1)['Close'].pct_change(self.lookback)
+        
+        # 选出每个日期中动量最大的top_n股票
+        df['Rank'] = df.groupby(level=0)['Momentum'].rank(method='first', ascending=False)
+        df['Signal'] = (df['Rank'] <= self.top_n).astype(int)  # 1表示买入，0表示空仓
+
+        df['MarketReturn'] = df.groupby(level=1)['Close'].pct_change()
+        df['StrategyReturn'] = df['MarketReturn'] * df['Signal'].shift(1)
+        
+        df['CumulativeStrategy'] = df.groupby(level=1)['StrategyReturn'].apply(lambda x: (1 + x.fillna(0)).cumprod())
+        return df
+
+class turtle_strategy(BaseStrategy):
+    def __init__(self, df):
+        super().__init__(df)
+    
+    def strategy(self):
+        df = self.df.copy()
+        df['Date'] = pd.to_datetime(df['Date'])
+        df.set_index('Date', inplace=True)
+        df.sort_index(inplace=True)
+
+        df['TR'] = np.maximum(df['High'] - df['Low'],
+                      np.maximum(abs(df['High'] - df['Close'].shift()),
+                                 abs(df['Low'] - df['Close'].shift())))
+        df['ATR'] = df['TR'].rolling(20).mean()
+
+        df['High20'] = df['High'].rolling(20).max()
+        df['Low20'] = df['Low'].rolling(20).min()
+
+        df['Signal'] = 0
+        df.loc[df['Close'] > df['High20'].shift(1), 'Signal'] = 1
+        df.loc[df['Close'] < df['Low20'].shift(1), 'Signal'] = -1
+
+        df['MarketReturn'] = df['Close'].pct_change()
+        df['StrategyReturn'] = df['MarketReturn'] * df['Signal'].shift(1)
+        df['CumulativeStrategy'] = (1 + df['StrategyReturn'].fillna(0)).cumprod()
+        return df
