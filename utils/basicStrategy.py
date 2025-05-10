@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 class BaseStrategy:
     def __init__(self, df):
@@ -126,6 +127,40 @@ class bollinger_strategy(BaseStrategy):
         df['StrategyReturn'] = df['MarketReturn'] * df['Signal'].shift(1)
         df['CumulativeStrategy'] = (1 + df['StrategyReturn'].fillna(0)).cumprod()
         return df
+    
+    def plot_results(self):
+        """
+        Plot price with Bollinger Bands and strategy equity curve
+        """
+        import matplotlib.pyplot as plt
+
+        fig, axes = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
+
+        # Price and Bollinger Bands
+        axes[0].plot(self.df.index, self.df['Close'], label='Close Price', color='black')
+        axes[0].plot(self.df.index, self.df['MA_20'], label='MA 20', color='blue')
+        axes[0].plot(self.df.index, self.df['Upper'], label='Upper Band', linestyle='--', color='red')
+        axes[0].plot(self.df.index, self.df['Lower'], label='Lower Band', linestyle='--', color='green')
+        axes[0].fill_between(self.df.index, self.df['Lower'], self.df['Upper'], color='gray', alpha=0.1)
+
+        buy_signals = self.df[self.df['Signal'].diff() == 2].index
+        sell_signals = self.df[self.df['Signal'].diff() == -2].index
+        axes[0].scatter(buy_signals, self.df.loc[buy_signals, 'Close'], marker='^', label='Buy Signal')
+        axes[0].scatter(sell_signals, self.df.loc[sell_signals, 'Close'], marker='v', label='Sell Signal')
+
+        axes[0].set_title('Bollinger Bands & Trading Signals')
+        axes[0].set_ylabel('Price')
+        axes[0].legend()
+
+        # Equity Curve
+        axes[1].plot(self.df.index, self.df['CumulativeStrategy'], label='Bollinger Strategy Return')
+        axes[1].set_title('Strategy Equity Curve')
+        axes[1].set_ylabel('Cumulative Return')
+        axes[1].legend()
+
+        plt.xlabel('Date')
+        plt.tight_layout()
+        plt.show()
 
 class rsi_strategy(BaseStrategy):
     def __init__(self, df):
@@ -159,7 +194,7 @@ class pair_trading_strategy(BaseStrategy):
         super().__init__(df)
     
     def strategy(self):
-        df = self.df.copy()
+        df = self.df
         df['Date'] = pd.to_datetime(df['Date'])
         df.set_index('Date', inplace=True)
         df.sort_index(inplace=True)
@@ -185,24 +220,81 @@ class momentum_topN_strategy(BaseStrategy):
 
     def strategy(self):
         df = self.df.copy()
-        df['Momentum'] = df.groupby(level=1)['Close'].pct_change(self.lookback)
-        
-        # 选出每个日期中动量最大的top_n股票
-        df['Rank'] = df.groupby(level=0)['Momentum'].rank(method='first', ascending=False)
-        df['Signal'] = (df['Rank'] <= self.top_n).astype(int)  # 1表示买入，0表示空仓
 
+        if not isinstance(df.index, pd.MultiIndex):
+            raise ValueError("Expected MultiIndex with levels ['Date', 'Ticker'].")
+
+        df = df.sort_index()
+
+        # 动量与信号
+        df['Momentum'] = df.groupby(level=1)['Close'].pct_change(self.lookback)
+        df['Rank'] = df.groupby(level=0)['Momentum'].rank(method='first', ascending=False)
+        df['Signal'] = (df['Rank'] <= self.top_n).astype(int)
+
+        # 收益
         df['MarketReturn'] = df.groupby(level=1)['Close'].pct_change()
         df['StrategyReturn'] = df['MarketReturn'] * df['Signal'].shift(1)
-        
-        df['CumulativeStrategy'] = df.groupby(level=1)['StrategyReturn'].apply(lambda x: (1 + x.fillna(0)).cumprod())
+
+        # 组合级别等权合成
+        combo_df = df.groupby(level=0).agg({
+            'Close': 'mean',
+            'Signal': 'mean',
+            'StrategyReturn': 'mean'
+        })
+
+        combo_df['CumulativeStrategy'] = (1 + combo_df['StrategyReturn'].fillna(0)).cumprod()
+
+        # 保存结果
+        self.df = combo_df                   # 给 BaseStrategy.evaluate_performance 用
+        self.df_full = df                   # 给 plot_results 用
         return df
+
+    def plot_results(self, show_ticker_list=None):
+        """
+        只可视化多支股票的持仓热力图（Top-N Signal），横坐标仅显示日期
+        """
+        import matplotlib.dates as mdates
+
+        fig, ax = plt.subplots(1, 1, figsize=(14, 8), sharex=True)
+
+        # 解构 signal 矩阵
+        signal_df = self.df_full['Signal'].unstack(level=1).fillna(0)
+
+        # 可选筛选股票
+        if show_ticker_list:
+            missing = set(show_ticker_list) - set(signal_df.columns)
+            if missing:
+                print(f"Warning: Some tickers not in data: {missing}")
+            signal_df = signal_df[signal_df.columns.intersection(show_ticker_list)]
+
+        # 绘图
+        sns.heatmap(signal_df.T, cmap="YlGnBu", cbar=True, ax=ax)
+
+        # 优化横坐标日期显示
+        ax.set_xticks(np.linspace(0, len(signal_df.index)-1, 10, dtype=int))  # 每隔一定步长打标签
+        ax.set_xticklabels(
+            [signal_df.index[i].strftime('%Y-%m-%d') for i in ax.get_xticks()],
+            rotation=45,
+            ha='right'
+        )
+
+        ax.set_title('Top-N Stock Selection Heatmap')
+        ax.set_ylabel('Stock')
+        ax.set_xlabel('Date')
+
+        plt.tight_layout()
+        plt.show()
+
+
+
+
 
 class turtle_strategy(BaseStrategy):
     def __init__(self, df):
         super().__init__(df)
     
     def strategy(self):
-        df = self.df.copy()
+        df = self.df
         df['Date'] = pd.to_datetime(df['Date'])
         df.set_index('Date', inplace=True)
         df.sort_index(inplace=True)
@@ -222,4 +314,56 @@ class turtle_strategy(BaseStrategy):
         df['MarketReturn'] = df['Close'].pct_change()
         df['StrategyReturn'] = df['MarketReturn'] * df['Signal'].shift(1)
         df['CumulativeStrategy'] = (1 + df['StrategyReturn'].fillna(0)).cumprod()
+        return df
+
+class composite_strategy(BaseStrategy):
+    def __init__(self, df, static_features=None):
+        super().__init__(df)
+        self.sub_strategies = []
+        self.feature_weights = {}
+        self.static_features = static_features or {}
+
+    def add_strategy(self, strategy_cls, weight=1.0, **kwargs):
+        strat = strategy_cls(self.df.copy(), **kwargs)
+        self.sub_strategies.append((strat, weight))
+
+    def compute_static_weights(self):
+        """
+        根据静态特征调整策略整体权重
+        """
+        avg_return = self.static_features.get("AvgReturn", 0.0005)
+        volatility = self.static_features.get("Volatility", 0.02)
+        sharpe = self.static_features.get("SharpeRatio", 1.0)
+
+        # 构造静态权重因子（加权调节）
+        w_ret = 1 + 5 * avg_return
+        w_vol = 1 - 3 * volatility
+        w_sharpe = 1 + 0.5 * sharpe
+
+        combined_weight = w_ret * w_vol * w_sharpe
+        self.feature_weights = {"static_weight": max(0.1, min(combined_weight, 2.0))}
+        return self.feature_weights
+
+    def strategy(self):
+        df = self.df
+        df['Date'] = pd.to_datetime(df['Date'])
+        df.set_index('Date', inplace=True)
+        df.sort_index(inplace=True)
+
+        self.compute_static_weights()
+
+        signal_sum = 0
+        total_weight = 0
+
+        for strat, base_weight in self.sub_strategies:
+            strat_df = strat.strategy()
+            weight = base_weight * self.feature_weights.get("static_weight", 1.0)
+            signal_sum += weight * strat_df['Signal']
+            total_weight += weight
+
+        df['Signal'] = np.sign(signal_sum / total_weight)
+        df['MarketReturn'] = df['Close'].pct_change()
+        df['StrategyReturn'] = df['MarketReturn'] * df['Signal'].shift(1)
+        df['CumulativeStrategy'] = (1 + df['StrategyReturn'].fillna(0)).cumprod()
+        self.df = df
         return df
