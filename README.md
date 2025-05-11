@@ -45,6 +45,7 @@ Each CSV should be named like `AAPL_data.csv` and include the following columns:
 
 ```csv
 Date, Open, High, Low, Close, Volume
+```
 
 ## Environment Setup
 ```
