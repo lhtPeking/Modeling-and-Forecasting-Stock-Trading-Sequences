@@ -5,7 +5,7 @@ import glob
 from collections import defaultdict
 from datetime import datetime, timedelta
 import random
-from TradingStrategy import TradingStrategy
+from utils.timeSeriesStrategy import TradingStrategy
 from tqdm import tqdm
 # 设置随机种子以确保可重复性
 random.seed(42)
